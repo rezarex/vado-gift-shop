@@ -2,7 +2,8 @@ const User = require('../models/UserModel')
 const asyncHandler = require('express-async-handler');
 const {generateToken} = require('../config/auth');
 const validateMongodbId = require('../utils/validateMongodbid');
-const {refreshToken} = require('../config/refreshToken');
+const {generateRefreshToken} = require('../config/refreshToken');
+const jwt = require('jsonwebtoken')
 
 
 const createUser = asyncHandler(async(req, res) =>{
@@ -23,11 +24,12 @@ const loginUser = asyncHandler(async(req, res) =>{
     //check if user exists
     const findUser = await User.findOne({email})
     if(findUser && (await findUser.isPasswordMatched(password))){
-        const tokenRefresh = await refreshToken(findUser?.id);
+        const refreshToken = await generateRefreshToken(findUser?.id);
         const updateuser = await User.findByIdAndUpdate(findUser._id,{
-            tokenRefresh: tokenRefresh,
-        }, {new: true});
-        res.cookie('tokenRefresh', tokenRefresh,{
+            refreshToken: refreshToken,
+        },
+         {new: true});
+        res.cookie('refreshToken', refreshToken,{
             httpOnly: true,
             maxAge: 72*60*60*1000,
         })
@@ -46,8 +48,44 @@ const loginUser = asyncHandler(async(req, res) =>{
 
 //handle refresh token
 const handleRefreshToken = asyncHandler(async(req, res)=>{
-    
+    const cookie = req.cookies
+    //console.log(cookie);
+    if(!cookie?.refreshToken) throw new Error(`No refresh token in Cookies`)
+    const refreshToken = cookie.refreshToken;
+    const user = await User.findOne({"refreshToken":refreshToken})
+    if(!user) throw new Error(`No refresh token present in DB or not nmatched.`)
+    ///res.json(user);
+    jwt.verify(refreshToken, process.env.JWT_SECRET, (err, decoded)=>{
+        if(err || user.id !== decoded.id) throw new Error(`There is something wrong with refresh token`)
+        const accessToken = generateToken(user?.id)
+        res.json({accessToken})
+    })
 })
+
+//logout function
+const logout = asyncHandler(async (req, res) => {
+    const cookie = req.cookies
+    if(!cookie?.refreshToken) throw new Error(`No refresh token in Cookies`)
+    const refreshToken = cookie.refreshToken;
+    const user = await User.findOne({"refreshToken":refreshToken})
+    if(!user){
+        res.clearCookie('refreshToken', {
+            httpOnly: true,
+            secure: true,
+    });
+    return res.sendStatus(204)///forbidden
+        
+    }
+    await User.findOneAndUpdate(refreshToken,{
+        refreshToken: "",
+    });
+    res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: true,
+});
+res.sendStatus(204)///forbidden
+    //res.json({message: `Logged out successfully`});
+});
 
 
 //get all users
@@ -144,4 +182,15 @@ const blockUser = asyncHandler(async(req, res)=>{
     }
  });
 
-module.exports = {createUser, loginUser, getAllUsers, getSingleUser, deleteUser, updateUser, blockUser, unblockUser}
+module.exports = {
+    handleRefreshToken,
+    createUser,
+    loginUser,
+    getAllUsers,
+    getSingleUser,
+    deleteUser,
+    updateUser,
+    blockUser,
+    unblockUser,
+    logout,
+}
