@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 4000
 const connectDB = require('./config/connect')
 const { notFound, errorHandler } = require("./middlewares/errorHandler")
 const authRoute = require('./routes/authRoute')
+//my new update
 
 
 app.use(bodyParser.json())
